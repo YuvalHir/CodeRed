@@ -48,6 +48,7 @@ const App = () => {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [permissionError, setPermissionError] = useState(false);
     const [isRTL, setIsRTL] = useState(() => JSON.parse(localStorage.getItem('codeRedIsRTL')) || false);
+    const [customAccent, setCustomAccent] = useState(() => localStorage.getItem('codeRedCustomAccent') || '#10b981');
 
     // Timer Settings
     const [focusTime, setFocusTime] = useState(() => Number(localStorage.getItem('codeRedFocusTime')) || 25); // minutes
@@ -76,12 +77,18 @@ const App = () => {
         const saved = localStorage.getItem('codeRedDistractions');
         return saved ? JSON.parse(saved) : [];
     });
+
+    // Statistics
+    const [totalStudyTime, setTotalStudyTime] = useState(() => Number(localStorage.getItem('codeRedTotalStudyTime')) || 0);
+    const [sessionsCompleted, setSessionsCompleted] = useState(() => Number(localStorage.getItem('codeRedSessionsCompleted')) || 0);
+    const [bestStreak, setBestStreak] = useState(() => Number(localStorage.getItem('codeRedBestStreak')) || 0);
     const [newTask, setNewTask] = useState("");
     const [newDistraction, setNewDistraction] = useState("");
 
     // Modal State
     const [showReport, setShowReport] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [showStats, setShowStats] = useState(false);
 
     // Countdown
     const [targetDate, setTargetDate] = useState(() => {
@@ -104,7 +111,20 @@ const App = () => {
         if (defcon === 2) return 'text-orange-500 border-orange-500 shadow-orange-500';
         if (defcon === 3) return 'text-yellow-400 border-yellow-400 shadow-yellow-400';
         if (defcon === 4) return 'text-cyan-400 border-cyan-400 shadow-cyan-400';
+        if (defcon === 5) return 'text-emerald-400 border-emerald-400 shadow-emerald-400';
+        if (defcon === 6) return `text-[${customAccent}] border-[${customAccent}] shadow-[${customAccent}]`;
         return 'text-emerald-400 border-emerald-400 shadow-emerald-400';
+    };
+
+    const getTimerColor = () => {
+        if (timerMode === 'BREAK') return '#10b981';
+        if (defcon === 1) return '#ff0033';
+        if (defcon === 2) return '#f97316';
+        if (defcon === 3) return '#facc15';
+        if (defcon === 4) return '#06b6d4';
+        if (defcon === 5) return '#10b981';
+        if (defcon === 6) return customAccent;
+        return '#10b981';
     };
 
     const getBgGlow = () => {
@@ -134,7 +154,20 @@ const App = () => {
 
     useEffect(() => {
         localStorage.setItem('codeRedStreak', streak);
+        if (streak > bestStreak) setBestStreak(streak);
     }, [streak]);
+
+    useEffect(() => {
+        localStorage.setItem('codeRedTotalStudyTime', totalStudyTime);
+    }, [totalStudyTime]);
+
+    useEffect(() => {
+        localStorage.setItem('codeRedSessionsCompleted', sessionsCompleted);
+    }, [sessionsCompleted]);
+
+    useEffect(() => {
+        localStorage.setItem('codeRedBestStreak', bestStreak);
+    }, [bestStreak]);
 
     useEffect(() => {
         localStorage.setItem('codeRedTargetDate', targetDate.toISOString());
@@ -143,6 +176,10 @@ const App = () => {
     useEffect(() => {
         localStorage.setItem('codeRedIsRTL', JSON.stringify(isRTL));
     }, [isRTL]);
+
+    useEffect(() => {
+        localStorage.setItem('codeRedCustomAccent', customAccent);
+    }, [customAccent]);
 
     useEffect(() => {
         localStorage.setItem('codeRedIsActive', JSON.stringify(isActive));
@@ -158,6 +195,7 @@ const App = () => {
 
     useEffect(() => {
         localStorage.setItem('codeRedDefcon', defcon);
+        playDefconChange(defcon);
     }, [defcon]);
 
     useEffect(() => {
@@ -194,10 +232,12 @@ const App = () => {
 
     const handleTimerComplete = () => {
         setIsActive(false);
+        playTimerComplete();
         if (timerMode === 'FOCUS') {
             setStreak(s => s + 1);
+            setTotalStudyTime(prev => prev + initialTime);
+            setSessionsCompleted(prev => prev + 1);
             setShowReport(true);
-            // Play alarm sound logic here
         } else {
             // Break over
             setTimerMode('FOCUS');
@@ -289,6 +329,86 @@ const App = () => {
         }
     };
 
+    // --- Audio Functions ---
+
+    const playBeep = (frequency = 800, duration = 200, type = 'sine') => {
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.value = frequency;
+            oscillator.type = type;
+
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration / 1000);
+        } catch (error) {
+            console.warn('Audio not supported');
+        }
+    };
+
+    const playTimerComplete = () => {
+        // Play a sequence of beeps
+        setTimeout(() => playBeep(800, 300), 0);
+        setTimeout(() => playBeep(1000, 300), 400);
+        setTimeout(() => playBeep(1200, 500), 800);
+    };
+
+    const playDefconChange = (level) => {
+        // Different tones for different DEFCON levels
+        const frequencies = [400, 500, 600, 700, 800];
+        playBeep(frequencies[level - 1] || 600, 200);
+    };
+
+    // --- Keyboard Shortcuts ---
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Ignore if typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            switch (e.key) {
+                case ' ':
+                    e.preventDefault();
+                    toggleTimer();
+                    break;
+                case 'Enter':
+                    if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        // Focus on task input and simulate enter
+                        const taskInput = document.querySelector('input[placeholder="New objective..."]');
+                        if (taskInput) {
+                            taskInput.focus();
+                            setTimeout(() => taskInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })), 10);
+                        }
+                    }
+                    break;
+                case 'Escape':
+                    if (showSettings) setShowSettings(false);
+                    if (showReport) setShowReport(false);
+                    if (showStats) setShowStats(false);
+                    break;
+                case 's':
+                    if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        setShowStats(!showStats);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showSettings, showReport, showStats]);
+
     // --- Render Helpers ---
 
     const getStopButtonText = () => {
@@ -340,7 +460,7 @@ const App = () => {
 
                     <div className="flex items-center gap-6 mt-4 md:mt-0 bg-[#0f0f0f] p-2 rounded border border-gray-800">
                         <span className="text-xs uppercase tracking-widest mr-2">DEFCON LEVEL</span>
-                        {[1, 2, 3, 4, 5].map((level) => (
+                        {[1, 2, 3, 4, 5, 6].map((level) => (
                             <button
                                 key={level}
                                 onClick={() => setDefcon(level)}
@@ -358,6 +478,9 @@ const App = () => {
 
                     <div className="flex flex-col items-end gap-2">
                         <div className="flex items-center gap-4">
+                            <button onClick={() => setShowStats(true)} className="flex items-center gap-2 text-xs uppercase hover:text-white transition-colors">
+                                <Target size={14} /> Stats
+                            </button>
                             <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-xs uppercase hover:text-white transition-colors">
                                 <Settings size={14} /> Settings
                             </button>
@@ -463,32 +586,79 @@ const App = () => {
                         {/* Streak Counter (The Heating Up Element) */}
                         <div className="mb-8 relative">
                             <AnimatePresence>
-                                {streak >= 3 && (
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.8 }}
-                                        animate={{ opacity: [0.4, 0.8, 0.4], scale: [1, 1.1, 1] }}
-                                        transition={{ duration: 2, repeat: Infinity }}
-                                        className="absolute inset-0 bg-orange-500 blur-2xl rounded-full -z-10"
-                                    />
+                                {streak >= 1 && (
+                                    <>
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.5 }}
+                                            animate={{
+                                                opacity: [0.3, 0.6, 0.3],
+                                                scale: [0.8 + streak * 0.1, 0.9 + streak * 0.1, 0.8 + streak * 0.1],
+                                                rotate: [0, 5, -5, 0]
+                                            }}
+                                            transition={{ duration: 3, repeat: Infinity }}
+                                            className="absolute inset-0 bg-orange-500 blur-3xl rounded-full -z-10"
+                                        />
+                                        {streak >= 5 && (
+                                            <motion.div
+                                                animate={{
+                                                    opacity: [0.2, 0.4, 0.2],
+                                                    scale: [1.2, 1.4, 1.2],
+                                                }}
+                                                transition={{ duration: 4, repeat: Infinity, delay: 1 }}
+                                                className="absolute inset-0 bg-red-500 blur-2xl rounded-full -z-10"
+                                            />
+                                        )}
+                                    </>
                                 )}
                             </AnimatePresence>
                             <div className={`flex flex-col items-center ${streak >= 3 ? 'text-orange-500 drop-shadow-[0_0_10px_rgba(255,165,0,0.8)]' : 'text-gray-500'}`}>
                                 <div className="text-xs uppercase tracking-[0.3em] mb-1">Current Streak</div>
                                 <div className="flex items-end leading-none">
                                     <span className="text-6xl font-black">{streak}</span>
-                                    <Flame
-                                        size={32}
-                                        className={`mb-2 ml-2 transition-all duration-500 ${streak >= 3 ? 'fill-orange-500 animate-bounce' : 'opacity-20'}`}
-                                    />
+                                    <motion.div
+                                        animate={streak >= 3 ? {
+                                            scale: [1, 1.2, 1],
+                                            rotate: [0, 10, -10, 0]
+                                        } : {}}
+                                        transition={{ duration: 2, repeat: Infinity }}
+                                    >
+                                        <Flame
+                                            size={32 + streak * 2}
+                                            className={`mb-2 ml-2 transition-all duration-500 ${streak >= 3 ? 'fill-orange-500 animate-bounce' : 'opacity-20'}`}
+                                        />
+                                    </motion.div>
                                 </div>
                             </div>
                         </div>
 
                         {/* THE TIMER */}
-                        <div className="relative mb-12">
+                        <div className="relative mb-12 flex items-center justify-center">
+                            <svg className="absolute w-80 h-80 md:w-96 md:h-96" viewBox="0 0 200 200">
+                                <circle
+                                    cx="100"
+                                    cy="100"
+                                    r="99"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.1)"
+                                    strokeWidth="2"
+                                />
+                                <motion.circle
+                                    cx="100"
+                                    cy="100"
+                                    r="99"
+                                    fill="none"
+                                    stroke={getTimerColor()}
+                                    strokeWidth="1"
+                                    strokeLinecap="round"
+                                    initial={{ pathLength: 1 }}
+                                    animate={{ pathLength: timeLeft / initialTime }}
+                                    transition={{ duration: 0.5, ease: "easeInOut" }}
+                                    transform="rotate(-90 100 100)"
+                                />
+                            </svg>
                             <motion.div
-                                animate={{ scale: isActive ? [1, 1.01, 1] : 1 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                animate={{ scale: isActive ? [1, 1.002, 1] : 1 }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
                                 className={`text-8xl md:text-9xl font-black tracking-tighter tabular-nums ${timerMode === 'BREAK' ? 'text-green-500' : themeClass.split(' ')[0]}`}
                                 style={{ textShadow: isActive && defcon === 1 ? '0 0 20px rgba(255,0,51,0.5)' : 'none' }}
                             >
@@ -712,7 +882,16 @@ const App = () => {
 
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Focus Time (minutes)</label>
+                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Timer Presets</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button onClick={() => { setFocusTime(25); setBreakTime(5); }} className="bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 text-xs uppercase">Classic (25/5)</button>
+                                        <button onClick={() => { setFocusTime(50); setBreakTime(10); }} className="bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 text-xs uppercase">Extended (50/10)</button>
+                                        <button onClick={() => { setFocusTime(20); setBreakTime(5); }} className="bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 text-xs uppercase">Quick (20/5)</button>
+                                        <button onClick={() => { setFocusTime(90); setBreakTime(15); }} className="bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 text-xs uppercase">Deep Work (90/15)</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Custom Focus Time (minutes)</label>
                                     <input
                                         type="number"
                                         value={focusTime}
@@ -723,7 +902,7 @@ const App = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Break Time (minutes)</label>
+                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Custom Break Time (minutes)</label>
                                     <input
                                         type="number"
                                         value={breakTime}
@@ -757,6 +936,15 @@ const App = () => {
                                         <button onClick={() => setPlaylistUrl('https://open.spotify.com/embed/playlist/37i9dQZF1DX0XUsuxWHRQd?utm_source=generator&theme=0')} className="bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 text-xs uppercase">Lo-Fi Study</button>
                                     </div>
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-bold uppercase tracking-wider mb-2">Custom Accent Color</label>
+                                    <input
+                                        type="color"
+                                        value={customAccent}
+                                        onChange={(e) => setCustomAccent(e.target.value)}
+                                        className="w-full h-10 bg-black border border-gray-800 rounded outline-none cursor-pointer"
+                                    />
+                                </div>
                                 <div className="flex items-center justify-between">
                                     <label className="text-sm font-bold uppercase tracking-wider">Hebrew RTL Mode</label>
                                     <button
@@ -772,6 +960,65 @@ const App = () => {
                                 <button
                                     onClick={() => setShowSettings(false)}
                                     className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 uppercase tracking-widest transition-colors"
+                                >
+                                    Close
+                                </button>
+                            </div>
+
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* --- Statistics Modal --- */}
+            <AnimatePresence>
+                {showStats && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center backdrop-blur-sm p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            className="bg-[#0f0f0f] border border-cyan-500 w-full max-w-lg p-6 relative shadow-[0_0_50px_rgba(6,182,212,0.2)]"
+                        >
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent"></div>
+
+                            <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-4 text-center">Mission Statistics</h2>
+
+                            <div className="grid grid-cols-2 gap-4 mb-6">
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Total Study Time</div>
+                                    <div className="text-xl text-cyan-400 font-bold">{Math.floor(totalStudyTime / 60)}h {totalStudyTime % 60}m</div>
+                                </div>
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Sessions Completed</div>
+                                    <div className="text-xl text-cyan-400 font-bold">{sessionsCompleted}</div>
+                                </div>
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Current Streak</div>
+                                    <div className="text-xl text-orange-400 font-bold">{streak}</div>
+                                </div>
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Best Streak</div>
+                                    <div className="text-xl text-orange-400 font-bold">{bestStreak}</div>
+                                </div>
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Tasks Completed</div>
+                                    <div className="text-xl text-green-400 font-bold">{tasks.filter(t => t.completed).length}</div>
+                                </div>
+                                <div className="bg-black border border-gray-800 p-4 text-center">
+                                    <div className="text-xs text-gray-500 uppercase mb-1">Avg Session</div>
+                                    <div className="text-xl text-green-400 font-bold">{sessionsCompleted > 0 ? Math.floor(totalStudyTime / sessionsCompleted) : 0}m</div>
+                                </div>
+                            </div>
+
+                            <div className="text-center">
+                                <button
+                                    onClick={() => setShowStats(false)}
+                                    className="bg-cyan-600 hover:bg-cyan-500 text-black font-bold py-2 px-4 uppercase tracking-widest transition-colors"
                                 >
                                     Close
                                 </button>
