@@ -43,8 +43,8 @@ Code Red was created during a university exam period to help students maintain f
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yuvalhir/code-red.git
-   cd code-red
+   git clone https://github.com/yuvalhir/codered.git
+   cd codered
    ```
 
 2. **Install dependencies**
